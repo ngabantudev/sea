@@ -1,0 +1,31 @@
+{
+  "name": "sea",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Civic map of Southeast Asia's land border crossings — which gates Americans can cross.",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "tiles:build": "node scripts/tiles/build-basemap.mjs",
+    "tiles:publish": "node scripts/tiles/build-basemap.mjs --upload"
+  },
+  "dependencies": {
+    "@lucide/astro": "^1.31.0",
+    "astro": "^7.1.6",
+    "maplibre-gl": "^5.24.0",
+    "pmtiles": "^4.5.0"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.9",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.2.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3"
+  }
+}

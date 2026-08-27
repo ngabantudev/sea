@@ -1,0 +1,98 @@
+---
+// src/components/ui/AccordionSection.astro
+//
+// One collapsible section of a filters sidebar. Every section ships CLOSED —
+// the parent panel's exclusive-accordion script is what opens one at a time, and
+// it reads the classes below rather than any per-section configuration. Resist
+// adding an `openByDefault` prop: the version this was extracted from had one,
+// and every call site passed false.
+//
+// The height animation uses `grid-template-rows: 0fr -> 1fr` rather than
+// max-height, so a section animates to its actual content height without a
+// magic number that clips whichever section outgrows it.
+import { ChevronDown } from "@lucide/astro";
+
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+---
+
+<div class="accordion-section border-b border-hair">
+  <!--
+    `group` + the group-hover ink lifts read as normal hover emphasis, and also
+    keep the contrast: hover shifts the row to --hover, a step away from the
+    panel in both themes, which the muted ink tokens have to follow to stay clear
+    of 4.5:1.
+  -->
+  <button
+    type="button"
+    class="accordion-trigger group flex w-full items-center justify-between px-3.5 py-3 text-left transition-colors hover:bg-hover md:px-4"
+    aria-expanded="false"
+  >
+    <span class="text-[10px] font-bold uppercase tracking-wider text-ink-3 group-hover:text-ink">
+      {title}
+    </span>
+    <ChevronDown
+      size={14}
+      class="accordion-chevron -rotate-90 text-ink-4 transition-transform duration-200 group-hover:text-ink-2"
+    />
+  </button>
+
+  <div class="accordion-content grid grid-rows-[0fr] transition-[grid-template-rows] duration-200 ease-out">
+    <div class="overflow-hidden">
+      <slot />
+    </div>
+  </div>
+</div>
+
+<script>
+  import { onReady } from "~/lib/domReady";
+
+  /**
+   * Exclusive accordion, delegated from `document`.
+   *
+   * Delegated rather than per-trigger listeners so a section injected by a
+   * client island after boot works with no re-registration — and so this stays
+   * one listener regardless of how many sections a panel renders.
+   *
+   * Exclusive within the nearest scrolling container, not globally: two panels
+   * each with their own accordion should not close each other's sections.
+   */
+  /* Module scope, not `window` — see the same note in SheetPanel.astro. */
+  let detach: (() => void) | null = null;
+
+  function initAccordions(): void {
+    detach?.();
+    detach = null;
+
+    const onClick = (event: Event) => {
+      const trigger = (event.target as HTMLElement | null)?.closest<HTMLElement>(
+        ".accordion-trigger",
+      );
+      if (!trigger) return;
+
+      const wasOpen = trigger.getAttribute("aria-expanded") === "true";
+      const scope = trigger.closest("[data-accordion-scope]") ?? document;
+      for (const other of scope.querySelectorAll(".accordion-trigger")) {
+        other.setAttribute("aria-expanded", "false");
+      }
+      trigger.setAttribute("aria-expanded", String(!wasOpen));
+    };
+
+    document.addEventListener("click", onClick);
+    detach = () => document.removeEventListener("click", onClick);
+  }
+
+  onReady(initAccordions);
+</script>
+
+<!--
+  The open state is two rules keyed off `aria-expanded`, so the parent script
+  toggles exactly one attribute and never manages classes. They live in
+  global.css (`@layer components`, next to .prose-civic) rather than a scoped
+  <style> here — a scoped block applies only to elements this component renders
+  itself, which silently misses any section a client island injects via
+  innerHTML.
+-->

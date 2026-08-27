@@ -1,0 +1,221 @@
+---
+// src/components/ui/MapThemeSelector.astro
+//
+// Minimized "layers" control, popover-style like Google Maps' map-type button.
+//
+// Collapsed: a single icon button, stacked directly above MapLibre's
+// NavigationControl. Both read the --map-ctrl-* / --map-controls-bottom
+// variables in global.css, so they always line up and move together — the mobile
+// toolbar raises --map-controls-bottom to clear its own measured height, which
+// shifts this whole stack up in sync.
+//
+// Expanded: a small popover listing site theme first and basemap second. They
+// are two different things but one decision in the reader's head ("make this
+// light"), so they share a popover rather than competing for space in the
+// control stack. Picking a basemap dispatches MAP_STYLE_CHANGE_EVENT on
+// `document` for the map island to consume.
+//
+// FULLY TOKENIZED, deliberately. An earlier version of this control in a sister
+// repo hardcoded bg-white/90, border-neutral-200, text-neutral-700 and
+// ring-emerald-500 while every other control in that repo used tokens — so it
+// was the one piece of chrome that did not follow the theme. Use token classes
+// here even where a literal looks equivalent today.
+import { IS_SELF_HOSTED, MAP_STYLE_OPTIONS } from "~/lib/mapStyles";
+import { Sun, Moon, Check, Layers } from "@lucide/astro";
+
+const SITE_THEMES = [
+  { id: "light", label: "Light", icon: Sun },
+  { id: "dark", label: "Dark", icon: Moon },
+] as const;
+---
+
+<div
+  id="map-theme-selector"
+  class="absolute right-(--map-ctrl-right) bottom-[calc(var(--map-controls-bottom)+var(--map-ctrl-attrib-height)+var(--map-ctrl-gap)+var(--map-ctrl-group-height)+var(--map-ctrl-gap))] z-20 pointer-events-auto font-sans transition-[bottom,right] duration-250 ease-out"
+>
+  <button
+    id="mts-toggle"
+    type="button"
+    aria-haspopup="true"
+    aria-expanded="false"
+    aria-controls="mts-panel"
+    aria-label="Map and site theme"
+    class="flex items-center justify-center w-9 h-9 md:w-10 md:h-10 rounded-xl bg-panel-2 border border-hair-strong text-ink-2 shadow-lg shadow-(color:--shadow-panel) hover:bg-hover transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+  >
+    <Layers size={18} stroke-width={1.6} />
+  </button>
+
+  <!--
+    Ships `hidden`; the script swaps that for `flex`. `flex-col gap-0.5` with
+    nothing but `hidden` toggled opens the popover as a block, which silently
+    drops the gap and the padding meant to separate the two sections.
+
+    Opens upward so it does not run off the bottom of the viewport.
+  -->
+  <div
+    id="mts-panel"
+    role="menu"
+    class="hidden absolute bottom-full right-0 mb-2 w-48 flex-col gap-0.5 rounded-xl border border-hair-strong bg-panel-2 p-1.5 shadow-xl shadow-(color:--shadow-panel)"
+  >
+    <span class="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-ink-4">
+      Site Theme
+    </span>
+
+    <div class="grid grid-cols-2 gap-1 px-1 pb-1.5" role="radiogroup" aria-label="Site theme">
+      {
+        SITE_THEMES.map((option) => {
+          const Icon = option.icon;
+          return (
+            <button
+              type="button"
+              role="radio"
+              aria-checked="false"
+              data-theme={option.id}
+              class="mts-theme flex items-center justify-center gap-1.5 rounded-lg border border-hair px-2 py-1.5 text-[11px] font-semibold text-ink-3 hover:bg-hover hover:text-ink transition aria-checked:border-accent aria-checked:text-accent"
+            >
+              <Icon size={13} stroke-width={2.25} />
+              <span>{option.label}</span>
+            </button>
+          );
+        })
+      }
+    </div>
+
+    <!--
+      Basemap picker, only when this repo does NOT serve its own tiles.
+
+      A self-hosted deployment has exactly one archive (see TILES.md), and its
+      light/dark variants are the same archive painted differently — which the
+      Site Theme control above already switches. Listing four vendor basemaps
+      there would offer choices that cannot be honoured: MapView only subscribes
+      to `onMapStyleChange` in the vendor branch, so every one of them would be a
+      button that does nothing.
+    -->
+    {!IS_SELF_HOSTED && <div class="mx-1 border-t border-hair" />}
+    {
+      !IS_SELF_HOSTED && (
+        <span class="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-ink-4">
+          Map Theme
+        </span>
+      )
+    }
+    {
+      !IS_SELF_HOSTED &&
+        MAP_STYLE_OPTIONS.map((option) => (
+        <button
+          type="button"
+          role="menuitemradio"
+          aria-checked="false"
+          data-style-id={option.id}
+          data-style-url={option.url}
+          class="mts-option flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-[11px] md:text-xs font-semibold text-ink-2 hover:bg-hover hover:text-ink transition"
+        >
+          <span>{option.label}</span>
+          <Check size={14} class="mts-check shrink-0 text-accent opacity-0" />
+        </button>
+      ))
+    }
+  </div>
+</div>
+
+<script>
+  import { onReady } from "~/lib/domReady";
+  import { getActiveTheme, setTheme, type SiteTheme } from "~/lib/siteTheme";
+  import {
+    MAP_STYLE_CHANGE_EVENT,
+    MAP_STYLE_OPTIONS,
+    THEME_BASEMAP,
+    clearStoredMapStyleId,
+    getInitialMapStyle,
+    storeMapStyleId,
+  } from "~/lib/mapStyles";
+
+  let cleanups: (() => void)[] = [];
+
+  function initThemeSelector(): void {
+    const root = document.getElementById("map-theme-selector");
+    const toggle = document.getElementById("mts-toggle");
+    const panel = document.getElementById("mts-panel");
+    if (!root || !toggle || !panel) return;
+
+    while (cleanups.length > 0) cleanups.pop()?.();
+
+    const themeButtons = Array.from(panel.querySelectorAll<HTMLButtonElement>(".mts-theme"));
+    const styleButtons = Array.from(panel.querySelectorAll<HTMLButtonElement>(".mts-option"));
+
+    let activeStyleId = getInitialMapStyle().id;
+
+    function paint(): void {
+      const theme = getActiveTheme();
+      for (const button of themeButtons) {
+        button.setAttribute("aria-checked", String(button.dataset.theme === theme));
+      }
+      for (const button of styleButtons) {
+        const on = button.dataset.styleId === activeStyleId;
+        button.setAttribute("aria-checked", String(on));
+        button.querySelector(".mts-check")?.classList.toggle("opacity-0", !on);
+      }
+    }
+
+    function setOpen(open: boolean): void {
+      panel!.classList.toggle("hidden", !open);
+      panel!.classList.toggle("flex", open);
+      toggle!.setAttribute("aria-expanded", String(open));
+    }
+
+    function emit(id: string): void {
+      const option = MAP_STYLE_OPTIONS.find((o) => o.id === id);
+      if (!option) return;
+      activeStyleId = id;
+      document.dispatchEvent(new CustomEvent(MAP_STYLE_CHANGE_EVENT, { detail: option }));
+      paint();
+    }
+
+    const onToggle = () => setOpen(panel.classList.contains("hidden"));
+    toggle.addEventListener("click", onToggle);
+    cleanups.push(() => toggle.removeEventListener("click", onToggle));
+
+    for (const button of themeButtons) {
+      const onClick = () => {
+        const next = button.dataset.theme as SiteTheme | undefined;
+        if (!next) return;
+        setTheme(next);
+        // A theme switch hands the basemap back to the pairing rather than
+        // persisting the paired value — see mapStyles.ts on why writing it here
+        // would make THEME_BASEMAP unchangeable for anyone who has ever
+        // switched theme.
+        clearStoredMapStyleId();
+        emit(THEME_BASEMAP[next]);
+      };
+      button.addEventListener("click", onClick);
+      cleanups.push(() => button.removeEventListener("click", onClick));
+    }
+
+    for (const button of styleButtons) {
+      const onClick = () => {
+        const id = button.dataset.styleId;
+        if (!id) return;
+        storeMapStyleId(id); // an explicit choice — it now outranks the pairing
+        emit(id);
+      };
+      button.addEventListener("click", onClick);
+      cleanups.push(() => button.removeEventListener("click", onClick));
+    }
+
+    const onDocumentClick = (event: Event) => {
+      if (!root.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("click", onDocumentClick);
+    cleanups.push(() => document.removeEventListener("click", onDocumentClick));
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    cleanups.push(() => document.removeEventListener("keydown", onKeyDown));
+
+    paint();
+  }
+
+  onReady(initThemeSelector);
+</script>

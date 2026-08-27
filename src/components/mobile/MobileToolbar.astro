@@ -1,0 +1,259 @@
+---
+// src/components/mobile/MobileToolbar.astro
+//
+// The phone layout's one piece of permanent chrome, and the controller for every
+// panel that opens above it. Below the breakpoint only; the desktop layout is
+// untouched by this file.
+//
+// WHY THIS EXISTS
+//
+// The alternative is several independently-positioned floating surfaces, which
+// between them spend a quarter of a phone screen before anyone taps anything —
+// and each pair of them needs a rule about who yields to whom, so a fifth
+// surface needs four more rules.
+//
+// One bar, one sheet slot. See ~/lib/mobileSheet.ts for the contract; the short
+// version is that this file owns *which* panel is open and each panel owns
+// whether it is showing.
+//
+// NOT A NAV BAR. It looks like one, but a social app's bottom nav switches
+// between destinations and a map-first site has exactly one — the map. These are
+// inspectors over that map, which is why tapping the open tab closes it rather
+// than doing nothing, and why a detail panel opened by selecting a feature can
+// take the slot away from all of them.
+import { SlidersHorizontal, List, Newspaper } from "@lucide/astro";
+
+// Order is an argument: what is on the map, then what is being done about it,
+// then what is being said about it — narrowing from the reader's own screen
+// outward.
+//
+// `panel` is the id of the element each tab actually shows, so `aria-controls`
+// names something that exists. The panels are not this component's children —
+// they are the same rails the desktop layout uses, repositioned by
+// `.mobile-sheet` — so the ids are listed here rather than generated.
+const TABS = [
+  { id: "filters", label: "Filters", icon: SlidersHorizontal, panel: "map-filters" },
+  { id: "records", label: "Records", icon: List, panel: "record-panel" },
+  { id: "news", label: "News", icon: Newspaper, panel: "news-panel" },
+];
+---
+
+<!--
+  Scrim. Only ever raised for a tab sheet: it is what makes "tap the map to get
+  back to the map" work without every panel needing its own outside-click
+  handler, and it sits below the sheet and above everything else.
+
+  A panel opened by selecting a map feature does NOT get one — the map is what
+  the reader was just aiming at, and dimming it would be dimming the thing the
+  panel is about.
+
+  Light, and with no blur. The obvious choice is a heavy scrim that says "modal",
+  but the sheet most often open here is Filters, and blurring the map someone is
+  in the middle of filtering defeats the point of watching it change. 25% keeps
+  the map readable behind it while still reading as inert. A "Showing N of M"
+  line in the panel header is the other half of that answer — the count updates
+  whether or not the map is legible from here.
+
+  `md:hidden` as well as `hidden`: the script only ever removes `hidden`, and
+  above the breakpoint there are no sheets for this to belong to.
+-->
+<div id="mt-scrim" class="hidden md:hidden fixed inset-0 z-50 bg-black/25" aria-hidden="true"></div>
+
+<div
+  id="mobile-toolbar"
+  class="md:hidden fixed inset-x-0 bottom-0 z-60 pointer-events-auto font-sans"
+>
+  <!--
+    The ticker. One headline, no interaction required — which is the only reason
+    it survives at all: behind a tab, news reaches nobody who was not already
+    looking for it, and passive surfacing is most of what a watchdog map's news
+    rail is for. Filled by the news island, and `hidden` until it has something
+    to say, so a failed fetch costs no height.
+  -->
+  <button
+    id="mt-ticker"
+    type="button"
+    class="band-sub bg-panel hidden w-full items-center gap-2 px-4 h-7 border-t border-hair text-left active:bg-hover transition-colors"
+  >
+    <span class="shrink-0 text-[9px] font-bold uppercase tracking-wider text-accent">News</span>
+    <span id="mt-ticker-text" class="min-w-0 flex-1 truncate text-[10px] leading-none text-ink-2"></span>
+  </button>
+
+  <!--
+    `safe-bottom` (global.css) pads for the iOS home indicator. Without it the
+    tab row's lower third sits under the system gesture area, where a tap is the
+    system's rather than ours.
+
+    `min-h-14` on each tab clears the 44px touch-target floor outright, so this
+    row needs no `before:` pseudo-element trick.
+  -->
+  <nav class="band bg-panel grid grid-cols-3 border-t border-hair safe-bottom" aria-label="Map panels">
+    {
+      TABS.map((tab) => {
+        const Icon = tab.icon;
+        return (
+          <button
+            type="button"
+            class="mt-tab flex min-h-14 flex-col items-center justify-center gap-1 px-2 text-ink-4 transition-colors active:bg-hover focus:outline-none focus-visible:ring-1 focus-visible:ring-accent/50"
+            data-sheet={tab.id}
+            aria-expanded="false"
+            aria-controls={tab.panel}
+          >
+            <Icon size={18} stroke-width={2} />
+            <span class="text-[9px] font-bold uppercase tracking-wider leading-none">{tab.label}</span>
+          </button>
+        );
+      })
+    }
+  </nav>
+</div>
+
+<script>
+  import { onReady } from "~/lib/domReady";
+  import { SHEET_EVENT, isMobile, type SheetChangeDetail, type SheetId } from "~/lib/mobileSheet";
+
+  /** Gap between the toolbar and MapLibre's control stack above it. */
+  const CONTROLS_GAP = 12;
+
+  const TAB_ON = ["text-accent"];
+  const TAB_OFF = ["text-ink-4"];
+
+  let cleanups: (() => void)[] = [];
+
+  function initMobileToolbar(): void {
+    const root = document.getElementById("mobile-toolbar");
+    const scrim = document.getElementById("mt-scrim");
+    if (!root || !scrim) return;
+
+    while (cleanups.length > 0) cleanups.pop()?.();
+
+    const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>(".mt-tab"));
+    const ticker = document.getElementById("mt-ticker") as HTMLButtonElement | null;
+
+    // The single piece of state this whole layout turns on.
+    let activeSheet: SheetId | null = null;
+
+    function publish(): void {
+      for (const tab of tabs) {
+        const on = tab.dataset.sheet === activeSheet;
+        tab.setAttribute("aria-expanded", String(on));
+        tab.classList.add(...(on ? TAB_ON : TAB_OFF));
+        tab.classList.remove(...(on ? TAB_OFF : TAB_ON));
+      }
+      scrim!.classList.toggle("hidden", activeSheet === null);
+      document.dispatchEvent(
+        new CustomEvent<SheetChangeDetail>(SHEET_EVENT, { detail: { open: activeSheet } }),
+      );
+    }
+
+    /**
+     * The only writer of `activeSheet`.
+     *
+     * Opening a tab sheet clears any map selection, because the detail panel
+     * wants the same slot and is taller than a tab sheet. That is the one
+     * cross-surface rule left in the layout, and it is stated once, here, rather
+     * than once per pair of panels.
+     */
+    function setSheet(next: SheetId | null): void {
+      if (activeSheet === next) return;
+      activeSheet = next;
+      publish();
+      if (next !== null) {
+        document.dispatchEvent(new CustomEvent("mapfeatureselect", { detail: null }));
+      }
+    }
+
+    for (const tab of tabs) {
+      const onClick = () => {
+        const id = tab.dataset.sheet as SheetId | undefined;
+        if (!id) return;
+        // Tapping the open tab closes it. These are inspectors, not
+        // destinations — there is always somewhere to go back to (the map), and
+        // a tab that no-ops when already selected strands a reader who opened it
+        // by mistake.
+        setSheet(activeSheet === id ? null : id);
+      };
+      tab.addEventListener("click", onClick);
+      cleanups.push(() => tab.removeEventListener("click", onClick));
+    }
+
+    const onTickerClick = () => setSheet("news");
+    ticker?.addEventListener("click", onTickerClick);
+    cleanups.push(() => ticker?.removeEventListener("click", onTickerClick));
+
+    const onScrimClick = () => setSheet(null);
+    scrim.addEventListener("click", onScrimClick);
+    cleanups.push(() => scrim.removeEventListener("click", onScrimClick));
+
+    // Any panel can carry its own close button by marking it `data-sheet-close`.
+    // Delegated from `document` so a panel never needs a reference to this
+    // controller, and so a panel whose contents are re-rendered does not have to
+    // re-register anything.
+    const onDocumentClick = (event: Event) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-sheet-close]")) setSheet(null);
+    };
+    document.addEventListener("click", onDocumentClick);
+    cleanups.push(() => document.removeEventListener("click", onDocumentClick));
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && activeSheet !== null) setSheet(null);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    cleanups.push(() => document.removeEventListener("keydown", onKeyDown));
+
+    // A map selection takes the slot: the detail panel is the taller surface and
+    // it is what the reader just asked for.
+    const onFeatureSelect = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (detail && activeSheet !== null) {
+        activeSheet = null;
+        publish();
+      }
+    };
+    document.addEventListener("mapfeatureselect", onFeatureSelect);
+    cleanups.push(() => document.removeEventListener("mapfeatureselect", onFeatureSelect));
+
+    /**
+     * Publishes the toolbar's own height, which two other things lay out
+     * against: `.mobile-sheet` docks its bottom edge to it, and MapLibre's
+     * control stack sits above it via --map-controls-bottom.
+     *
+     * MEASURED rather than declared, because the height is not a constant: the
+     * ticker row appears only once there is a headline, and the safe-area
+     * padding is whatever the device says it is.
+     *
+     * This is the SOLE writer of --map-controls-bottom on a phone.
+     */
+    function publishHeight(): void {
+      const style = document.documentElement.style;
+      if (!isMobile()) {
+        style.removeProperty("--mobile-toolbar-h");
+        style.removeProperty("--map-controls-bottom");
+        return;
+      }
+      const height = root!.getBoundingClientRect().height;
+      style.setProperty("--mobile-toolbar-h", `${height}px`);
+      style.setProperty("--map-controls-bottom", `${height + CONTROLS_GAP}px`);
+    }
+
+    const observer = new ResizeObserver(publishHeight);
+    observer.observe(root);
+    cleanups.push(() => observer.disconnect());
+
+    const onResize = () => {
+      publishHeight();
+      // Crossing to desktop hands every panel back to its own layout, which has
+      // no concept of an active sheet — leaving one set would show a rail the
+      // desktop rules had already decided was collapsed.
+      if (!isMobile() && activeSheet !== null) setSheet(null);
+    };
+    window.addEventListener("resize", onResize);
+    cleanups.push(() => window.removeEventListener("resize", onResize));
+
+    publishHeight();
+    publish();
+  }
+
+  onReady(initMobileToolbar);
+</script>

@@ -1,0 +1,177 @@
+---
+// src/pages/index.astro
+//
+// The reference shell, and the thing you actually run to check a change. It
+// exercises every piece of the foundation at once: the band, the stat wells, the
+// accordion sidebar, the single-sheet contract, the map control stack, and the
+// micro-label type scale.
+//
+// Replace the sample data with your own registry and delete what you do not
+// need. The LAYOUT is the template; the content is filler.
+import Layout from "~/layouts/Layout.astro";
+import SiteHeader from "~/components/ui/SiteHeader.astro";
+import SheetPanel from "~/components/ui/SheetPanel.astro";
+import AccordionSection from "~/components/ui/AccordionSection.astro";
+import MapView from "~/components/map/MapView.astro";
+import MobileToolbar from "~/components/mobile/MobileToolbar.astro";
+
+// Four headline totals over the whole dataset — the scale of the thing, not a
+// readout of what is currently filtered. The "Showing N of M" line in the panel
+// header is the filtered count, and they answer different questions.
+const STATS = [
+  { label: "Total Power", value: "1.84 GW", accent: true },
+  { label: "Total Cost", value: "$12.6B" },
+  { label: "Active Sites", value: "31", muted: "/ 47" },
+  { label: "Permanent Jobs", value: "~420" },
+];
+
+const STATUSES = [
+  { label: "Operating", count: 18 },
+  { label: "Approved", count: 13 },
+  { label: "Proposed", count: 11 },
+  { label: "Withdrawn", count: 5 },
+];
+
+const RECORDS = [
+  { name: "Sample Facility A", place: "Hennepin County", mw: "120 MW" },
+  { name: "Sample Facility B", place: "Dakota County", mw: "96 MW" },
+  { name: "Sample Facility C", place: "Sherburne County", mw: "310 MW" },
+  { name: "Sample Facility D", place: "Olmsted County", mw: "45 MW" },
+];
+---
+
+<Layout mapShell metadata={{ title: "Reference shell", ignoreTitleTemplate: true }}>
+  <div class="flex h-full flex-col">
+    <SiteHeader />
+
+    <!-- `relative` so the rails and the control stack position against the map
+         area rather than the page, and `min-h-0` so this flex child is allowed
+         to shrink — without it the map pushes the header off-screen. -->
+    <div class="relative min-h-0 flex-1">
+      <MapView />
+
+      <SheetPanel id="map-filters" sheet="filters" title="Filters" side="left">
+        <!--
+          The stat block. Desktop only: on a phone this slot is a sheet the
+          reader opened to filter, and four totals they did not ask for would
+          push the controls below the fold.
+
+          `.band` here too, so the tiles read as recessed wells inside a coloured
+          header (light) and raised ones inside a dark field (dark) — same markup,
+          both results, see --well in each theme.
+        -->
+        <div class="band bg-panel hidden border-b border-hair px-4 py-4 md:block">
+          <span class="mb-2 block text-sm font-semibold uppercase leading-none tracking-[0.25em] text-accent">
+            Reference Shell
+          </span>
+          <h1 class="mb-4 whitespace-nowrap text-2xl font-black uppercase leading-none tracking-tight text-ink">
+            Minnesota
+          </h1>
+          <div class="grid grid-cols-2 gap-3">
+            {
+              STATS.map((stat) => (
+                <div class="stat-well flex min-w-0 flex-col justify-center gap-1 rounded-lg p-3">
+                  <span class="text-[10px] font-medium uppercase leading-tight tracking-wider text-ink-3">
+                    {stat.label}
+                  </span>
+                  <span
+                    class:list={[
+                      "text-xl font-bold tabular-nums tracking-tight md:text-2xl",
+                      stat.accent ? "text-accent" : "text-ink",
+                    ]}
+                  >
+                    {stat.value}
+                    {stat.muted && <span class="text-ink-4"> {stat.muted}</span>}
+                  </span>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+
+        <!-- `data-accordion-scope` keeps the exclusive-accordion behaviour inside
+             this panel, so a second panel's sections are unaffected. -->
+        <div data-accordion-scope>
+          <AccordionSection title="Status">
+            <ul class="pb-2">
+              {
+                STATUSES.map((status) => (
+                  <li>
+                    <label class="flex cursor-pointer items-center gap-2.5 px-3.5 py-2 transition-colors hover:bg-panel-3 md:px-4">
+                      <input
+                        type="checkbox"
+                        checked
+                        class="h-4 w-4 shrink-0 accent-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      />
+                      <span class="min-w-0 flex-1 truncate text-xs text-ink-2">{status.label}</span>
+                      <span class="shrink-0 text-[10px] tabular-nums text-ink-4">{status.count}</span>
+                    </label>
+                  </li>
+                ))
+              }
+            </ul>
+          </AccordionSection>
+
+          <AccordionSection title="Size">
+            <p class="px-3.5 pb-3 text-xs text-ink-3 md:px-4">
+              Sample section. Every section ships closed; the panel opens one at a time.
+            </p>
+          </AccordionSection>
+
+          <AccordionSection title="Legal Status">
+            <p class="px-3.5 pb-3 text-xs text-ink-3 md:px-4">
+              Sample section.
+            </p>
+          </AccordionSection>
+        </div>
+      </SheetPanel>
+
+      <SheetPanel id="record-panel" sheet="records" title="Records" side="right">
+        <!--
+          The DOM record list is the primary screen-reader interface, not a
+          fallback — it must stay synchronised with whatever is drawn on the map,
+          and every record must be reachable and readable with the map absent.
+        -->
+        <ul class="divide-y divide-hair">
+          {
+            RECORDS.map((record) => (
+              <li>
+                <button
+                  type="button"
+                  class="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate text-sm font-semibold text-ink">{record.name}</span>
+                    <span class="block truncate text-[11px] text-ink-3">{record.place}</span>
+                  </span>
+                  <span class="shrink-0 text-xs font-semibold tabular-nums text-accent">{record.mw}</span>
+                </button>
+              </li>
+            ))
+          }
+        </ul>
+      </SheetPanel>
+
+      <!--
+        `desktop="none"`, and the reason is worth reading before you copy this.
+        The right edge is already the records rail's. A second panel with
+        `side="right"` is a second absolutely-positioned box at the same inset —
+        it does not tile, it covers. One rail per edge.
+
+        So on desktop this one does not render, and the toolbar it belongs to is
+        `md:hidden` anyway, which makes that consistent rather than a hole. If
+        news needs a desktop home, it either takes the right rail and records
+        becomes the thing that overlays it on selection, or it becomes a section
+        inside a rail that already exists. Not a third rail.
+      -->
+      <SheetPanel id="news-panel" sheet="news" title="News" side="right" desktop="none">
+        <p class="prose-civic px-4 py-3 text-xs text-ink-3">
+          Sample panel. In a real repo this is the news rail, and the toolbar's ticker
+          shows its top headline passively — one line, no badge, no unread count.
+        </p>
+      </SheetPanel>
+    </div>
+
+    <MobileToolbar />
+  </div>
+</Layout>

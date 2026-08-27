@@ -1,0 +1,106 @@
+---
+// src/components/map/MapView.astro
+//
+// The map island. Owns the MapLibre instance and nothing else — panels talk to
+// it through events, never by reaching for the map object.
+//
+// `isolate` on the container is LOAD-BEARING, not decorative. Markers get an
+// inline z-index of their own so an overlapping pin can render above its
+// neighbour, and `position: absolute` with no z-index does NOT create a
+// stacking context — so without `isolate` those inline values are compared at
+// the root level and win, painting map pins over the controls floating above
+// the map. With it, "highest z-index" only ever means "highest among pins."
+import MapThemeSelector from "~/components/ui/MapThemeSelector.astro";
+---
+
+<div class="absolute inset-0 isolate">
+  <div id="map" class="h-full w-full"></div>
+</div>
+
+<MapThemeSelector />
+
+<script>
+  import maplibregl from "maplibre-gl";
+  import "maplibre-gl/dist/maplibre-gl.css";
+  import { Protocol } from "pmtiles";
+  import { onReady } from "~/lib/domReady";
+  import {
+    IS_SELF_HOSTED,
+    SELF_HOSTED_TILES_URL,
+    getInitialMapStyle,
+    onMapStyleChange,
+  } from "~/lib/mapStyles";
+  import { buildSelfHostedStyle } from "~/lib/selfHostedStyle";
+  import { getActiveTheme, onSiteThemeChange } from "~/lib/siteTheme";
+
+  /*
+    Module scope, not function scope — see the teardown at the top of initMap.
+    `onReady` runs init again on `astro:page-load`, which replaces the DOM: a
+    subscription created in a previous run would still close over the old,
+    destroyed map and throw on the next theme change, and the old map's WebGL
+    context would leak.
+  */
+  let map: maplibregl.Map | null = null;
+  let cleanups: (() => void)[] = [];
+
+  /*
+    Registered once per page, not per map. `pmtiles://` is how the style spec
+    (selfHostedStyle.ts) refers to the archive; without this protocol MapLibre
+    has no idea how to turn that into byte-range requests. Only needed when this
+    repo serves its own tiles.
+  */
+  let protocolRegistered = false;
+  function registerPmtilesProtocol(): void {
+    if (protocolRegistered) return;
+    maplibregl.addProtocol("pmtiles", new Protocol().tile);
+    protocolRegistered = true;
+  }
+
+  function styleFor(): maplibregl.StyleSpecification | string {
+    return IS_SELF_HOSTED
+      ? buildSelfHostedStyle(SELF_HOSTED_TILES_URL, getActiveTheme())
+      : getInitialMapStyle().url;
+  }
+
+  function initMap(): void {
+    // Tear down whatever a previous run left behind before touching the DOM.
+    while (cleanups.length > 0) cleanups.pop()?.();
+    map?.remove();
+    map = null;
+
+    const container = document.getElementById("map");
+    if (!container) return;
+
+    if (IS_SELF_HOSTED) registerPmtilesProtocol();
+
+    map = new maplibregl.Map({
+      container,
+      style: styleFor(),
+      center: [-93.2, 45.0],
+      zoom: 6.4,
+      // The DOM record list beside the canvas is the primary screen-reader
+      // interface; the canvas itself should not be a tab stop that traps focus.
+      attributionControl: { compact: true },
+    });
+
+    // Mounted into MapLibre's own bottom-right corner, whose offsets global.css
+    // repoints at the shared --map-ctrl-* variables so this stack and
+    // MapThemeSelector can never drift out of alignment.
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+
+    // Both subscriptions keep their unsubscribe, so the teardown above can
+    // actually run. The basemap picker is meaningless when self-hosted (there
+    // is one archive), so that branch repaints on THEME change instead — the
+    // style's colours are baked into the spec rather than read from CSS, since
+    // WebGL cannot resolve `var(--ink)`.
+    cleanups.push(
+      IS_SELF_HOSTED
+        ? onSiteThemeChange((theme) =>
+            map?.setStyle(buildSelfHostedStyle(SELF_HOSTED_TILES_URL, theme)),
+          )
+        : onMapStyleChange((option) => map?.setStyle(option.url)),
+    );
+  }
+
+  onReady(initMap);
+</script>

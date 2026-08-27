@@ -1,0 +1,96 @@
+---
+// src/components/ui/SiteHeader.astro
+//
+// The site's identity bar. `.band` re-points every surface token for this
+// subtree (global.css, Layer 3), so the ordinary `bg-panel` / `text-ink` /
+// `text-accent` utilities below pick up the band's palette automatically — there
+// are no `band-*` class names to keep in sync, and no `dark:` twins.
+//
+// `h-16`, a FIXED height rather than one that grows with content. A masthead
+// that wraps to two lines makes the whole topbar grow and shrink as its content
+// changes, which shoves everything below it up and down. Anything that needs
+// room grows sideways instead, on one `whitespace-nowrap` line.
+//
+// Persistent chrome: render this once in the layout or on every page, but never
+// inside a route-scoped wrapper — a link that only exists on some routes is an
+// orphan page on the others.
+import { Search, Menu } from "@lucide/astro";
+import { touchTargetClass } from "~/lib/touchTarget";
+
+const NAV_LINKS = [
+  { href: "/", label: "Map" },
+  { href: "/data", label: "Data" },
+  { href: "/sources", label: "Sources" },
+  { href: "/about", label: "About" },
+];
+---
+
+<header
+  class="band flex h-16 shrink-0 items-center gap-3 border-b border-hair bg-panel px-4 sm:gap-5 sm:px-6"
+>
+  <a href="/" class="flex min-w-0 shrink-0 items-center gap-2">
+    <span class="whitespace-nowrap text-base font-black uppercase leading-none tracking-tight text-ink sm:text-lg">
+      Site Name
+    </span>
+  </a>
+
+  <!-- Text links, not icons: this bar's remaining room is spoken for by the
+       masthead and the search box. Below `sm` the row does not render at all —
+       those destinations live in the bottom toolbar instead. -->
+  <nav aria-label="Site" class="hidden shrink-0 items-center gap-4 sm:flex">
+    {
+      NAV_LINKS.map((link) => (
+        <a
+          href={link.href}
+          class="whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-ink-2 hover:text-ink hover:underline"
+        >
+          {link.label}
+        </a>
+      ))
+    }
+  </nav>
+
+  <!-- Search earns a permanent spot in the chrome rather than floating over the
+       map: it is the primary interface for anyone who never touches the canvas,
+       and a resize or a tall panel must never be able to crowd it out. -->
+  <div class="hidden min-w-0 flex-1 sm:flex sm:justify-center">
+    <label class="relative flex w-full max-w-md items-center">
+      <span class="sr-only">Search an address, city, or county</span>
+      <Search size={16} class="pointer-events-none absolute left-3 text-ink-3" />
+      <input
+        type="search"
+        placeholder="Search an address, city, or county"
+        class="h-9 w-full rounded-full border border-hair-strong bg-panel-2 pl-9 pr-3 text-sm text-ink placeholder:text-ink-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      />
+    </label>
+  </div>
+
+  <!-- Mobile-only triggers. `sm:hidden` on the buttons themselves rather than
+       inside the `hidden sm:flex` wrapper above: that wrapper's job is hiding the
+       inline search box, so the two need opposite breakpoint behaviour.
+
+       Token classes, never a hardcoded white — `.band` already resolves these to
+       the band's own pairing, and they stay correct if the band's palette
+       changes. touchTargetClass keeps the drawn glyph at 36px while still
+       clearing the 44px floor. -->
+  <button
+    type="button"
+    aria-label="Search"
+    class:list={[
+      "ml-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ink transition hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:hidden",
+      touchTargetClass(36),
+    ]}
+  >
+    <Search size={18} stroke-width={2} />
+  </button>
+  <button
+    type="button"
+    aria-label="More links"
+    class:list={[
+      "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ink transition hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:hidden",
+      touchTargetClass(36),
+    ]}
+  >
+    <Menu size={18} stroke-width={2} />
+  </button>
+</header>

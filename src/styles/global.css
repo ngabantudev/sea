@@ -1,0 +1,752 @@
+/* src/styles/global.css
+ *
+ * The whole theming system, in one file, in three layers.
+ *
+ * Layer 1 — raw palette values, declared twice: once on :root (light) and once
+ * on .dark. <html> carries exactly one, set by the no-flash script in the
+ * layout before first paint.
+ *
+ * Layer 2 — the @theme inline block, mapping each raw value onto a Tailwind
+ * color token. That is what lets a component write `bg-panel` / `text-ink` /
+ * `border-hair` once and have both themes resolve correctly, instead of every
+ * component carrying a `dark:` twin per color.
+ *
+ * Layer 3 — the surface scopes (.band, .band-sub), which re-declare a subset of
+ * layer 1 for one subtree, so a panel header can be a colored band over an
+ * off-white body without its contents knowing.
+ *
+ * Adding a color means adding it in all three places: :root, .dark, and @theme
+ * inline. Only add a token if both themes have a sensible answer for it —
+ * status and data hexes are deliberately NOT tokenized, since they encode
+ * meaning and must stay stable across themes. Those live in their own registry
+ * module.
+ *
+ * TEMPLATE: every value below is Minnesota's, and every one is sourced. Replace
+ * the palette with your own two sources and fill in PALETTE.md before you touch
+ * a hex. Do not carry these values into a project they have no provenance for.
+ */
+@import "tailwindcss";
+
+/*
+ * If the project uses MapLibre, import its stylesheet into Tailwind's `base`
+ * layer — not plainly.
+ *
+ * MapLibre sets `.maplibregl-map { position: relative }` and puts that class on
+ * our own container, which Tailwind has already positioned `absolute inset-0`.
+ * The two rules have identical specificity, and an unlayered rule beats a
+ * layered one regardless of load order, so imported plainly it always wins: the
+ * container flips to relative, `inset-0` stops sizing anything, the height
+ * collapses to zero, and `overflow: hidden` clips the canvas. The map goes blank
+ * with nothing in the console. Importing into `base` puts it below `utilities`,
+ * where our own layout utilities outrank it. The unlayered overrides at the foot
+ * of this file still win.
+ */
+/* @import "maplibre-gl/dist/maplibre-gl.css" layer(base); */
+
+/* ------------------------------------------------------------------------- */
+/* Layer 1 — raw values                                                       */
+/* ------------------------------------------------------------------------- */
+
+/*
+  Light — two measured sources, no eyeballed values.
+
+  The BODY is the State of Minnesota portal, taken from mn.gov's own core.css:
+
+    #f2f2f2  the off-white it fills its deepest nav levels with; #e6e6e6 is
+             that surface's hover
+    #e9e9e9  its striped-table row
+    #e5e5e5  its `.nav-divider` rule; #d9d9d9 a heavier nav edge
+    #333333  body type, #555555 the de-emphasised step below it
+    #0062b2  link blue
+    #303030  the footer band, with #b2b2b2 for muted type on it
+    #78be21  brand green (#86d425 on hover), reserved for primary CTAs
+
+  The BANDS are the state flag adopted in 2024, at the State Emblems Redesign
+  Commission's own published values (its 2024-01-01 report specifies each in
+  Web colour, CMYK and Pantone):
+
+    #002d5d  Night Sky Blue, Pantone 648 — the flag's field
+    #52c9e8  Water Blue, Pantone 305
+    #ffffff  the eight-pointed North Star
+
+  Three colours is the whole flag, so where the chrome needs a step the flag
+  doesn't give — a row hover, a recessed well — it is derived from those three
+  and labelled as such at the point of use. The flag has no light surface at
+  all, which is why the body stays the portal's: Water Blue measures 1.7:1 on
+  #f2f2f2, so it can only ever be an on-navy colour here.
+*/
+:root {
+  color-scheme: light;
+
+  --canvas: #f0f0f0; /* page background, behind every panel */
+  --panel: #f2f2f2; /* chrome surfaces: header, floating control bars */
+  --panel-2: #ffffff; /* raised content surfaces: cards, dropdowns */
+  --panel-3: #e9e9e9; /* recessed surfaces: sub-rows, track backgrounds */
+
+  --ink: #1b1b1b; /* primary text, on a panel */
+  --ink-2: #333333; /* secondary text / sub-headings */
+  --ink-3: #555555; /* tertiary text / captions */
+  /* #666666, not mn.gov's own #767676: the smallest labels on these sites are
+     9–10px, and #767676 lands at 4.1:1 on #f2f2f2 — under AA. This clears it on
+     all three body surfaces (5.1 on #f2f2f2, 4.7 on #e9e9e9, 4.6 on hover). */
+  --ink-4: #666666; /* quietest text / disabled, muted */
+  /* Text sitting directly on --canvas (the map backdrop) rather than a panel —
+     a different surface, so worth its own token even though it is identical to
+     --ink here; see the dark override below for why. */
+  --ink-canvas: #1b1b1b;
+
+  --hair: #e5e5e5; /* hairline borders */
+  --hair-strong: #d9d9d9; /* emphasized borders, input borders */
+  --hover: #e6e6e6; /* hover background for interactive rows */
+
+  --accent: #0062b2; /* links, active state, focus rings */
+  /* Hover goes *darker* on a light surface, and lands on Night Sky Blue: the
+     flag's field doubles as this theme's strongest ink-on-white blue (12.2:1). */
+  --accent-hover: #002d5d;
+  --accent-soft: rgba(0, 98, 178, 0.1); /* accent at low opacity, for badges/fills */
+  --on-accent: #ffffff; /* text/icon drawn on a solid --accent fill */
+
+  --positive: #78be21; /* affirmative signal, distinct from --accent */
+  --positive-hover: #86d425;
+  --on-positive: #002d5d;
+
+  /* Recessed reads as white-in-grey on this body, the way mn.gov insets its
+     form fields. The three properties move as a unit — see .well below. */
+  --well: #ffffff;
+  --well-hair: #d9d9d9;
+  --well-shadow:
+    inset 0 1px 3px rgba(0, 45, 93, 0.09),
+    0 1px 0 rgba(255, 255, 255, 0.8);
+
+  /* Floating panels sit over the live map, not over --canvas, so their shadow
+     has to read as "lifted off the basemap" rather than a generic grey drop
+     shadow — tinted off Night Sky Blue for that reason. Consumed as
+     `shadow-(color:--shadow-panel)` on top of a normal shadow-lg/-xl/-2xl,
+     which keeps each element's own elevation and only recolours it. At the dark
+     theme's strength it reads as grime here. */
+  --shadow-panel: rgba(0, 45, 93, 0.18);
+
+  /* The flag's own two blues, named once so anything reaching for them
+     references what the colour *is* rather than repeating a raw hex.
+     Theme-invariant: the flag has no light/dark variant, only whether it is
+     *used* as chrome does. */
+  --flag-night-sky: #002d5d; /* Pantone 648 */
+  --flag-water-blue: #52c9e8; /* Pantone 305 */
+}
+
+.dark {
+  color-scheme: dark;
+
+  --canvas: #131314;
+  --panel: #18181b;
+  --panel-2: #09090b;
+  --panel-3: rgba(9, 9, 11, 0.3);
+
+  --ink: #f5f5f5;
+  --ink-2: #e5e5e5;
+  --ink-3: #a3a3a3;
+  --ink-4: #737373;
+  --ink-canvas: #e5e5e5; /* a shade under --ink — the same direction --ink-3 steps */
+
+  --hair: rgba(255, 255, 255, 0.1);
+  --hair-strong: rgba(255, 255, 255, 0.16);
+  --hover: rgba(255, 255, 255, 0.05);
+
+  --accent: #34d399;
+  --accent-hover: #6ee7b7;
+  --accent-soft: rgba(52, 211, 153, 0.1);
+  --on-accent: #0a0a0a;
+
+  --positive: #34d399;
+  --positive-hover: #6ee7b7;
+  --on-positive: #0a0a0a;
+
+  /* This theme reads these surfaces as *raised* rather than recessed — its
+     header sits at #09090b, so #18181b is a step up out of it. Same token,
+     opposite direction. */
+  --well: #18181b;
+  --well-hair: rgba(255, 255, 255, 0.07);
+  --well-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+
+  --shadow-panel: rgba(0, 0, 0, 0.6);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Layer 2 — Tailwind tokens                                                  */
+/* ------------------------------------------------------------------------- */
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-panel-3: var(--panel-3);
+
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+  --color-ink-canvas: var(--ink-canvas);
+
+  --color-hair: var(--hair);
+  --color-hair-strong: var(--hair-strong);
+  --color-hover: var(--hover);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+
+  --color-positive: var(--positive);
+  --color-positive-hover: var(--positive-hover);
+  --color-on-positive: var(--on-positive);
+
+  --color-well: var(--well);
+  --color-well-hair: var(--well-hair);
+
+  --color-flag-night-sky: var(--flag-night-sky);
+  --color-flag-water-blue: var(--flag-water-blue);
+
+  /* System font stack, no webfont — keeps every render, including a five-year-
+     old phone on throttled 3G, off the network for type entirely. */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial,
+    sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
+}
+
+/*
+  Tailwind v4 keys `dark:` off prefers-color-scheme by default. This site picks
+  its theme explicitly (localStorage + a toggle), so re-point the variant at the
+  .dark class instead. Most components should not need `dark:` at all — the
+  tokens above make it unnecessary almost everywhere — but it is here for the
+  rare value with genuinely no light/dark counterpart.
+*/
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ------------------------------------------------------------------------- */
+/* Layer 3 — surface scopes                                                   */
+/* ------------------------------------------------------------------------- */
+
+/*
+  The two themes disagree about how many surfaces the chrome has. The dark theme
+  is one dark field throughout. The light theme has three: the portal's
+  off-white body, the flag's Night Sky Blue for the masthead and panel headers,
+  and the portal's dark footer grey for the strip under one of them — with type
+  that has to invert between them.
+
+  A band re-declares the surface tokens for its own subtree rather than every
+  component inside it carrying a light/dark twin per colour. That works because
+  `@theme inline` compiles the utilities down to `var(--ink)`, `var(--hair)` and
+  so on, so `text-ink`, `border-hair`, `bg-hover` and `text-accent` keep working
+  unchanged inside a band — they just resolve against the band instead of the
+  body. Same mechanism as `.dark`, one subtree deep.
+
+    .band      the masthead / panel header — the flag's field
+    .band-sub  the dark grey strip beneath it (mn.gov's footer, #303030)
+
+  A band declares NO BACKGROUND of its own — pair it with `bg-panel`, which now
+  resolves to the band's surface. That is deliberate: setting the background here
+  would have to be an unlayered rule, which outranks every Tailwind utility and
+  would silently flatten the `bg-panel/95` translucency the floating panels rely
+  on.
+
+  Note which selectors carry which half. The inverted ink, hairlines and accent
+  are scoped to `:root:not(.dark)`, because they only make sense on a light
+  body — the dark theme has no surface to invert against, and letting them
+  through would hand its masthead a Water Blue eyebrow and a blue hover in place
+  of its emerald. What both themes share is the surface *step*: in dark a band
+  drops to that theme's near-black, which is what its panel headers have always
+  been, so the chrome still reads as one continuous field.
+*/
+:root:not(.dark) .band {
+  /* Night Sky Blue, the flag's field. */
+  --panel: #002d5d;
+  --panel-2: #002d5d;
+  --panel-3: #002d5d;
+
+  /*
+    The muted ink ramp is the North Star's white stepped down in opacity, not a
+    second family of light blues. Two reasons: the flag has exactly one light
+    blue and it is spoken for as --accent below, so a separate cool ramp would
+    read as a near-miss of it; and a neutral ramp is what lets Water Blue
+    register as emphasis rather than as one more shade of the same wash.
+
+    On Night Sky: 13.7 / 10.9 / 7.7 / 6.2:1. They are translucent, so they
+    composite over whatever surface they land on — the hover wash and the well
+    below are both accounted for, --ink-4 being the tight one at 5.0:1 on hover.
+  */
+  --ink: #ffffff;
+  --ink-2: rgba(255, 255, 255, 0.88);
+  --ink-3: rgba(255, 255, 255, 0.72);
+  --ink-4: rgba(255, 255, 255, 0.64);
+
+  /* Water Blue hairlines, and a row hover derived from it: the flag has no
+     mid-tone, so the step off the field is #0d4673, Pantone 305 at 16% over
+     #002d5d. Water Blue itself still reads at 5.1:1 on a hovered row.
+
+     Flattened to a hex rather than left as that rgba, deliberately. `bg-hover`
+     is a *replacement* background, and elements that hover with it may float
+     over the live map — a translucent hover there does not tint the element, it
+     punches a hole through it to the basemap. */
+  --hair: rgba(82, 201, 232, 0.32);
+  --hair-strong: rgba(82, 201, 232, 0.55);
+  --hover: #0d4673;
+
+  /* Water Blue, Pantone 305 — 7.1:1 on the field, and 7.1:1 the other way round
+     for Night Sky type on a Water Blue button. Accent hover is the star's white
+     rather than a lightened blue, so the flag's own three values cover it. */
+  --accent: #52c9e8;
+  --accent-hover: #ffffff;
+  --accent-soft: rgba(82, 201, 232, 0.12);
+  --on-accent: #002d5d;
+
+  /* Recessed well. Derived: Night Sky darkened, since the flag offers nothing
+     between its field and black. White reads at 16.7:1 in here and Water Blue
+     at 8.7:1. */
+  --well: #001e3f;
+  --well-hair: rgba(82, 201, 232, 0.22);
+  --well-shadow:
+    inset 0 1px 3px rgba(0, 12, 26, 0.5),
+    0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/*
+  Neutral charcoal, not a tint of the band's blue. A secondary strip under a
+  coloured primary header is what GitHub, Linear and Stripe all do; a second
+  navy reads as an unrelated blue box rather than a step down.
+*/
+:root:not(.dark) .band-sub {
+  --panel: #303030;
+  --panel-2: #303030;
+  --panel-3: #303030;
+
+  --ink: #ffffff;
+  --ink-2: #e6e6e6;
+  --ink-3: #d9d9d9;
+  --ink-4: #b2b2b2;
+
+  /* Plain white-alpha overlays, not Water-Blue-tinted ones: this strip is not
+     the flag, so its own internal steps should not borrow the flag's mid-tone. */
+  --hair: rgba(255, 255, 255, 0.22);
+  --hair-strong: rgba(255, 255, 255, 0.4);
+  --hover: #4a4a4a;
+
+  /* Water Blue carried down from the band above: the body's #0062b2 link blue
+     measures 2.1:1 on this grey, and Pantone 305 measures 6.8:1. Keeping the
+     accent is what makes this read as a step down from the masthead rather than
+     an unrelated grey box. */
+  --accent: #52c9e8;
+  --accent-hover: #ffffff;
+  --accent-soft: rgba(82, 201, 232, 0.16);
+  --on-accent: #303030;
+
+  --well: #202020;
+  --well-hair: rgba(255, 255, 255, 0.08);
+  --well-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.3),
+    0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* Dark mode never had a flag-navy band, so both scopes converge on the
+   workspace's own near-black — which is what its panel headers have always
+   been. Everything else stays exactly as `.dark` declares it. */
+.dark .band,
+.dark .band-sub {
+  --panel: #09090b;
+  --panel-2: #09090b;
+  --panel-3: #09090b;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Base                                                                       */
+/* ------------------------------------------------------------------------- */
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    /* text on --canvas, not --panel: the body sits on the map backdrop, which
+       is a different surface from the panels --ink is measured against. */
+    background: var(--canvas);
+    color: var(--ink-canvas);
+    font-family: var(--font-sans);
+  }
+
+  /* WCAG 2.1 AA: focus must be visible everywhere, including on the map. */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* Global, and it includes MapLibre's easing. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  ::selection {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Components                                                                 */
+/* ------------------------------------------------------------------------- */
+
+@layer components {
+  .skip-link {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    z-index: 100;
+    padding: 0.75rem 1rem;
+    background: var(--accent);
+    color: var(--on-accent);
+    font-weight: 600;
+  }
+  .skip-link:focus {
+    left: 0.5rem;
+    top: 0.5rem;
+  }
+
+  /*
+    Surface + hairline + inner shadow, bundled as one class because the three
+    only work together and because the two themes invert the direction (see
+    --well in each). A plain background swap is not enough inside a band: two
+    flat blues an eye can barely separate just looks like a rendering bug. The
+    full inset treatment is what sells "recessed well" over "slightly different
+    rectangle", and it suits a numeric readout — the number sits *in* the panel
+    instead of floating on it.
+
+    Kept out of @theme deliberately: box-shadow is not a colour token, and
+    splitting it across both places would let them drift.
+  */
+  .well,
+  .stat-well {
+    background-color: var(--well);
+    border: 1px solid var(--well-hair);
+    box-shadow: var(--well-shadow);
+  }
+
+  /*
+    Hides scrollbar chrome. Use ONLY where the pane carries its own visual edge
+    and every item is reachable by tab and heading navigation — otherwise use
+    .scroll-slim below.
+
+    Global, not per-component, and that is a fix rather than a preference: as a
+    scoped <style> block it applies only to elements that component renders
+    itself, so a list carrying the class in a sibling file, and every item a
+    client island injects via innerHTML, both show a scrollbar the design says
+    they should not.
+  */
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Thin but visible. The default for any scrolling pane. */
+  .scroll-slim {
+    scrollbar-width: thin;
+    scrollbar-color: var(--hair-strong) transparent;
+  }
+  .scroll-slim::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-slim::-webkit-scrollbar-thumb {
+    background: var(--hair-strong);
+    border-radius: 4px;
+  }
+
+  /* The iOS home indicator owns the bottom ~34px of the viewport, and a tap
+     there belongs to the system. Anything docked to the bottom edge has to pad
+     past it or lose its lower third. */
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /*
+    AccordionSection's open state, keyed off `aria-expanded` so the parent
+    panel's script toggles exactly one attribute and never manages classes.
+
+    Here rather than in a scoped <style> in the component: a scoped block applies
+    only to elements that component renders itself, which silently misses any
+    section a client island injects via innerHTML.
+
+    `grid-template-rows: 0fr -> 1fr` rather than max-height, so a section
+    animates to its actual content height without a magic number that clips
+    whichever section outgrows it.
+  */
+  .accordion-trigger[aria-expanded="true"] + .accordion-content {
+    grid-template-rows: 1fr;
+  }
+  .accordion-trigger[aria-expanded="true"] .accordion-chevron {
+    transform: rotate(0deg);
+  }
+
+  /* Long-form static pages. */
+  .prose-civic {
+    max-width: 68ch;
+    line-height: 1.7;
+  }
+  .prose-civic p,
+  .prose-civic ul {
+    margin-bottom: 1rem;
+    color: var(--ink-2);
+  }
+  .prose-civic ul {
+    padding-left: 1.25rem;
+    list-style: disc;
+  }
+  .prose-civic li {
+    margin-bottom: 0.375rem;
+  }
+  .prose-civic h2 {
+    margin: 2.5rem 0 0.75rem;
+    font-size: 1.375rem;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .prose-civic h3 {
+    margin: 1.75rem 0 0.5rem;
+    font-size: 1.0625rem;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .prose-civic a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Map chrome geometry                                                        */
+/* ------------------------------------------------------------------------- */
+
+/*
+  Every offset in the map's bottom-right control stack — MapLibre's own
+  NavigationControl, the attribution badge, and our theme selector — reads from
+  these variables, so they can never drift out of alignment with each other.
+
+  Each variable has EXACTLY ONE WRITER. Two owners for one variable is the bug
+  this exists to remove.
+*/
+:root {
+  --map-ctrl-edge: 10px; /* matches MapLibre's own historical default margin */
+  --map-ctrl-gap: 10px;
+  --map-ctrl-group-height: 59px; /* two 29px NavigationControl buttons + 1px divider */
+  --map-ctrl-attrib-height: 24px; /* collapsed height of the attribution control */
+
+  /* How far the whole stack sits off the bottom edge. On a phone the mobile
+     toolbar raises this to clear its own *measured* height — not a constant,
+     since the height changes with its ticker row and the device's safe-area
+     inset. Desktop leaves it at the default. */
+  --map-controls-bottom: var(--map-ctrl-edge);
+
+  /*
+    The stack's horizontal inset, kept as its own variable rather than reading
+    --map-ctrl-edge directly. The two started as one number and are no longer
+    the same question: the bottom one is a margin, while this one has to clear
+    whatever rail is docked to the right edge. Overriding --map-ctrl-edge to say
+    so would move the stack *up* by the same amount, because
+    --map-controls-bottom above derives from it — which is the bug this split
+    exists to prevent.
+  */
+  --map-ctrl-right: var(--map-ctrl-edge);
+
+  /* Width of whichever rail is docked right. Declared here so the stack
+     geometry sits together rather than as a bare `24rem` in a script. */
+  --map-rail-w: 24rem;
+
+  /* Declared at 0px so every reader — .mobile-sheet, the control stack, any
+     bottom-docked panel — resolves to the desktop layout without a fallback of
+     its own. The mobile toolbar overrides it on :root with its measured height
+     while a phone-width viewport is showing, and removes the override above the
+     breakpoint, which falls back to this. */
+  --mobile-toolbar-h: 0px;
+}
+
+/*
+  `100%`/`100dvh`, not `100vw`/`100vh`.
+
+  `100vw` includes the width of a classic scrollbar, which on desktop Windows is
+  ~15px of horizontal overflow on an element the next rule then clips — panels
+  docked to the right edge get pushed under it.
+
+  `100vh` on a phone is the *largest* viewport: the height the page has only once
+  the address bar has retracted. With `overflow: hidden` there is no scroll to
+  retract it, so the last ~60–100px sits permanently behind browser chrome —
+  and everything docked to the bottom edge lives there. `dvh` tracks the viewport
+  that is actually visible.
+
+  Map-first pages only. Delete for a scrolling content site.
+*/
+html.map-shell,
+html.map-shell body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  /* A drag that starts on the map is a pan, not a page gesture. Without this,
+     dragging down from the top fires pull-to-refresh on Android Chrome and the
+     rubber-band on iOS, both of which take the gesture away mid-pan. */
+  overscroll-behavior: none;
+}
+
+/* ------------------------------------------------------------------------- */
+/* The phone layout's single sheet                                            */
+/* ------------------------------------------------------------------------- */
+
+/*
+  Below the breakpoint every inspector on the site occupies one slot, directly
+  above the mobile toolbar, and exactly one is showing at a time. `.mobile-sheet`
+  is that slot. See ~/lib/mobileSheet.ts for who decides which.
+
+  Written as UNLAYERED CSS on purpose. Tailwind's utilities live in
+  `@layer utilities`, and an unlayered rule outranks every one of them regardless
+  of source order — which is what lets one class restate the position of panels
+  that each carry their own absolute/fixed/inset/width utilities for the desktop
+  layout, without any of them needing a `max-md:` twin per property. (Same
+  mechanism the `.band` note above relies on, and the reason that note warns
+  against setting a background there.)
+
+  What is deliberately NOT set here is `display`. Every panel keeps its own
+  showing/hiding mechanism — a `hidden` class, a translate, a media query — and
+  an unlayered `display` would silently outrank all of them, which is exactly the
+  kind of two-owners bug this layout exists to remove.
+
+  `not all and (min-width: 48rem)` is the exact complement of Tailwind's `md:`,
+  which matters at fractional viewport widths under browser zoom and on scaled
+  displays: at 767.5px a `max-width: 767px` rule and `md:` are both false, which
+  would leave a sheet with neither its phone geometry nor its desktop utilities.
+  Negation cannot have a gap. MOBILE_QUERY in ~/lib/mobileSheet.ts must match
+  this string exactly.
+*/
+@media not all and (min-width: 48rem) {
+  .mobile-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: var(--mobile-toolbar-h);
+    width: auto;
+    max-width: none;
+    margin: 0;
+    max-height: 62dvh;
+    border-radius: 1rem 1rem 0 0;
+    border-bottom-width: 0;
+    /* Above the scrim (z-50), below the toolbar (z-60) that opened it. */
+    z-index: 55;
+    transform: none;
+  }
+
+  /*
+    The one display rule, and note whose it is: `.is-closed` is a class the PANEL
+    puts on itself in response to the toolbar's event — not something the toolbar
+    or `.mobile-sheet` imposes. That is the difference between this and setting
+    `display` on `.mobile-sheet` directly, which would outrank every panel's own
+    hidden/shown mechanism and recreate the two-owners bug the contract exists to
+    remove. Scoped inside this media query so a panel that is a docked rail on
+    desktop is never hidden by its own mobile state.
+  */
+  .mobile-sheet.is-closed {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* MapLibre overrides — unlayered, so they still win                          */
+/* ------------------------------------------------------------------------- */
+
+/*
+  Anchor MapLibre's NavigationControl to the shared stack variables instead of
+  its built-in 10px margin, so it always lines up with our own controls and
+  moves with them. `right` as well as `bottom`: the edge moves when a right-hand
+  rail opens or closes, and the stack should travel with it rather than jump.
+*/
+.maplibregl-ctrl-bottom-right {
+  bottom: var(--map-controls-bottom) !important;
+  right: var(--map-ctrl-right) !important;
+  transition:
+    bottom 0.25s cubic-bezier(0.25, 1, 0.5, 1),
+    right 0.3s ease-out;
+}
+
+/* MapLibre's compact AttributionControl carries an unconditional margin:10px
+   that is not scoped to a corner container. Left in place it widens the badge
+   asymmetrically against the 29px buttons beside it and throws off the stack's
+   alignment. Zeroed so spacing is `gap` alone, same as its siblings. */
+.maplibregl-ctrl-bottom-right .maplibregl-ctrl {
+  margin: 0 !important;
+}
+
+/*
+  Attribution, collapsed to a single ⓘ button until clicked. Credit for the
+  basemap and every overlay is a licence condition, but a permanent credit bar
+  eats map on a phone — and because MapLibre only lists attribution for sources
+  currently *on* the map, each overlay's credit appears exactly when that layer
+  is switched on.
+*/
+.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib {
+  margin-top: var(--map-ctrl-gap) !important;
+  border-radius: 0.75rem;
+  background: var(--panel-2);
+  color: var(--ink-3) !important;
+  border: 1px solid var(--hair);
+  box-shadow: 0 4px 6px -1px var(--shadow-panel);
+}
+.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib a {
+  color: var(--ink-2) !important;
+}
+
+/* Expanded, the credit list must not grow the stack sideways off a narrow
+   screen or upward into the zoom buttons. */
+.maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-inner {
+  max-width: min(70vw, 24rem);
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+/* The ⓘ affordance is the only thing between a visitor and the licence text. */
+.maplibregl-ctrl-attrib-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/*
+  Popups are deliberately NOT tokenized to the chrome. A popup floats over the
+  basemap rather than sitting in the app chrome, so it reads as a map artifact —
+  and a white card stays legible over both the dark and light basemaps. Any
+  popup-building helper should assume this and use fixed dark-on-white type.
+*/
+.maplibregl-popup {
+  z-index: 50 !important;
+}
+.maplibregl-popup-content {
+  background: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 0.85rem !important;
+  padding: 14px 16px !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.12) !important;
+  max-width: calc(100vw - 32px) !important;
+  box-sizing: border-box !important;
+}

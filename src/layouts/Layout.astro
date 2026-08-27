@@ -1,0 +1,123 @@
+---
+// src/layouts/Layout.astro
+import "../styles/global.css";
+
+interface Props {
+  metadata?: {
+    title?: string;
+    description?: string;
+    ogImage?: string;
+    ignoreTitleTemplate?: boolean;
+  };
+  /** Map-first pages fill the viewport and manage their own scrolling. */
+  mapShell?: boolean;
+}
+
+const { metadata = {}, mapShell = false } = Astro.props;
+
+const siteTitle = "SITE NAME";
+const siteDescription = "One sentence: what this maps, and where the data comes from.";
+
+const displayTitle = metadata.title
+  ? metadata.ignoreTitleTemplate
+    ? metadata.title
+    : `${metadata.title} | ${siteTitle}`
+  : siteTitle;
+const displayDescription = metadata.description || siteDescription;
+
+// Inline SVG data URI, not a binary file: no extra request, and it survives a
+// repo move. Kept theme-independent — the tab icon should not flicker on a
+// theme switch.
+const faviconSvg =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">' +
+  '<rect width="32" height="32" rx="8" fill="#002d5d"/>' +
+  '<circle cx="16" cy="16" r="9" fill="#52c9e8" stroke="#ffffff" stroke-width="2"/>' +
+  "</svg>";
+const faviconHref = `data:image/svg+xml,${encodeURIComponent(faviconSvg)}`;
+---
+
+<!--
+  No `dark` class in the served markup — the inline script in <head> adds it
+  before first paint when that is the stored preference. Keeping it off the
+  static HTML means the light civic theme is what a no-JS or slow-JS visitor
+  sees, which is the safer default for a public-records site.
+-->
+<html
+  lang="en"
+  class:list={["motion-safe:scroll-smooth", mapShell && "map-shell"]}
+>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- The BAND's colour, not --canvas: what sits under a phone's browser
+         chrome is this site's header band, not the map. Updated at runtime by
+         siteTheme.ts's setTheme(); this is only what a fresh, no-JS-yet visitor
+         gets. -->
+    <meta name="theme-color" content="#002d5d" />
+    <link rel="icon" href={faviconHref} type="image/svg+xml" />
+
+    {/*
+      Runs before first paint to avoid a flash of the wrong theme. It has to be
+      inline and dependency-free — importing siteTheme.ts here would defer it
+      past paint, which is the exact problem it exists to solve — so the storage
+      key and the theme-color values are duplicated from that module. Keep the
+      two in sync if either changes.
+
+      UNDER A CSP with `script-src 'self'` and no `'unsafe-inline'`, this will
+      never execute. Move it to public/theme-init.js and load it as
+      `<script is:inline src="/theme-init.js">` — `is:inline` is still required,
+      or Astro defers/bundles it as a module and the flash comes back.
+    */}
+    <script is:inline>
+      (function () {
+        try {
+          var stored = localStorage.getItem("siteTheme");
+          if (stored !== "light" && stored !== "dark") stored = "light";
+          if (stored === "dark") {
+            document.documentElement.classList.add("dark");
+            var meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) meta.setAttribute("content", "#131314");
+          }
+        } catch (e) {}
+      })();
+    </script>
+
+    <title>{displayTitle}</title>
+    <meta name="description" content={displayDescription} />
+
+    <!-- No analytics, no tag manager, no third-party fonts, no ad tech: we do
+         not become the thing we map. Referrer is suppressed so that following a
+         source link does not announce which record was read. -->
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="index, follow" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={displayTitle} />
+    <meta property="og:description" content={displayDescription} />
+    {metadata.ogImage && <meta property="og:image" content={metadata.ogImage} />}
+    <meta name="twitter:card" content={metadata.ogImage ? "summary_large_image" : "summary"} />
+    <meta name="twitter:title" content={displayTitle} />
+    <meta name="twitter:description" content={displayDescription} />
+    {metadata.ogImage && <meta name="twitter:image" content={metadata.ogImage} />}
+
+    <!-- Warm up the connections the map needs on first paint: the basemap tile
+         server, and whatever bucket serves the overlay tiles. -->
+    <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
+  </head>
+
+  <!--
+    text-ink-canvas, not text-ink: the body sits on --canvas (the map backdrop),
+    which is a different surface from the panels --ink is measured against. See
+    the palette notes in global.css.
+  -->
+  <body class="bg-canvas text-ink-canvas antialiased flex flex-col h-full">
+    <a href="#main-content" class="skip-link">Skip to content</a>
+    <!-- `min-h-0` alongside `grow`: a flex item defaults to `min-height: auto`,
+         which refuses to shrink below its content. On a map shell that is the
+         difference between the map filling the space under the header and the
+         map pushing the header off the top of the screen. -->
+    <main id="main-content" class="min-h-0 grow" tabindex="-1">
+      <slot />
+    </main>
+  </body>
+</html>

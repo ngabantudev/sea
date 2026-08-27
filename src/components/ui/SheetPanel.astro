@@ -1,0 +1,119 @@
+---
+// src/components/ui/SheetPanel.astro
+//
+// A panel that is a docked rail on desktop and a sheet on a phone. The half of
+// the single-sheet contract that belongs to the panel: it listens for the
+// toolbar's event and shows itself when named, hides itself otherwise. The
+// toolbar never reaches into this DOM.
+//
+// Ships `is-closed`, which only means anything below the breakpoint (see the
+// rule in global.css) — so on desktop this is a rail from first paint, with no
+// flash and no JS required to reveal it.
+import type { SheetId } from "~/lib/mobileSheet";
+import { X } from "@lucide/astro";
+
+interface Props {
+  /** Must match the `panel` id the toolbar's tab names in `aria-controls`. */
+  id: string;
+  /** The sheet slot this panel claims. */
+  sheet: SheetId;
+  title: string;
+  /** Which edge it docks to on desktop. */
+  side?: "left" | "right";
+  /**
+   * What this panel is above the breakpoint.
+   *
+   * `rail` — docked to its edge. ONE panel per edge: two rails sharing `side`
+   * are two absolutely-positioned boxes at the same inset, and the second
+   * silently covers the first.
+   *
+   * `none` — mobile-only. A third surface that wants an edge already taken has
+   * to either overlay the rail there (its own higher z-rung, opened by a
+   * selection rather than a tab, closed back to the rail underneath) or not
+   * exist on desktop. Overlaying is a real pattern and a real cost; `none` is
+   * the honest default until someone needs it.
+   */
+  desktop?: "rail" | "none";
+}
+
+const { id, sheet, title, side = "left", desktop = "rail" } = Astro.props;
+
+// Rounded and border-less on the docking edge: an edge-docked rail has no
+// outside corner to round, and `.mobile-sheet` restates both for the phone.
+const sideClass =
+  side === "left"
+    ? "left-0 md:border-r md:border-l-0"
+    : "right-0 md:border-l md:border-r-0";
+---
+
+<aside
+  id={id}
+  data-sheet-panel={sheet}
+  aria-label={title}
+  class:list={[
+    "mobile-sheet is-closed absolute top-0 bottom-0 z-10 flex w-auto flex-col overflow-hidden rounded-2xl border border-hair bg-panel shadow-2xl shadow-(color:--shadow-panel) md:w-72 md:rounded-none md:border-t-0 md:border-b-0",
+    sideClass,
+    desktop === "none" && "md:hidden",
+  ]}
+>
+  <!--
+    The panel header. On a phone it is a title and a readout, not a control —
+    the toolbar's tab is what opens and closes this — so the only control here is
+    the close button, and it is `md:hidden` because a docked rail has nothing to
+    close to.
+
+    `data-sheet-close` is the whole handshake: the toolbar closes whatever is
+    open when a click lands inside such an element, so this panel never needs a
+    handle on the controller.
+  -->
+  <div class="band bg-panel flex min-h-12 shrink-0 items-center gap-2.5 border-b border-hair px-3.5 py-2.5">
+    <span class="text-[10px] font-bold uppercase tracking-wider text-ink">{title}</span>
+    <span class="ml-auto text-[10px] tabular-nums text-ink-3" data-panel-count></span>
+    <button
+      type="button"
+      data-sheet-close
+      aria-label={`Close ${title}`}
+      class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ink transition hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent md:hidden"
+    >
+      <X size={16} stroke-width={2} />
+    </button>
+  </div>
+
+  <div class="scroll-slim min-h-0 flex-1 overflow-y-auto">
+    <slot />
+  </div>
+</aside>
+
+<script>
+  import { onReady } from "~/lib/domReady";
+  import { onSheetChange } from "~/lib/mobileSheet";
+
+  /*
+    Module scope, not `window`. Astro hoists and de-duplicates this script, so
+    one module instance serves every SheetPanel on the page — which is exactly
+    the scope this handle needs. Parking it on `window` under an ad-hoc key
+    worked, but the failure mode when a fourth component copies the pattern and
+    reuses a key is silent: one component's cleanup runs on another's re-init,
+    and nothing errors.
+  */
+  let unsubscribe: (() => void) | null = null;
+
+  function initSheetPanels(): void {
+    // Idempotent per onReady's contract: drop the previous subscription before
+    // re-querying, because `astro:page-load` replaces the DOM and the old
+    // closure holds panels that are no longer in it.
+    unsubscribe?.();
+    unsubscribe = null;
+
+    const panels = Array.from(document.querySelectorAll<HTMLElement>("[data-sheet-panel]"));
+    if (panels.length === 0) return;
+
+    unsubscribe = onSheetChange((open) => {
+      for (const panel of panels) {
+        panel.classList.toggle("is-closed", panel.dataset.sheetPanel !== open);
+      }
+    });
+  }
+
+  onReady(initSheetPanels);
+</script>
