@@ -40,6 +40,18 @@ export const SELF_HOSTED_TILES_URL = import.meta.env.PUBLIC_TILES_URL || "";
 export const IS_SELF_HOSTED = SELF_HOSTED_TILES_URL !== "";
 
 /**
+ * Base URL packs are downloaded from — a directory of per-country .pmtiles
+ * files built by scripts/tiles/build-basemap.mjs, NOT a single archive. This
+ * is what src/lib/offlinePacks.ts fetches from; it is a separate concern from
+ * SELF_HOSTED_TILES_URL above, which points at one streamed archive for the
+ * (online, byte-range) self-hosted mode. A repo can offer offline packs
+ * without ever setting PUBLIC_TILES_URL.
+ */
+export const PACKS_BASE_URL = import.meta.env.PUBLIC_PACKS_BASE_URL || "";
+
+export const OFFLINE_PACKS_AVAILABLE = PACKS_BASE_URL !== "";
+
+/**
  * Attribution for the self-hosted archive. TWO separate licence obligations,
  * not one restatement: rendering from OSM data produces a Produced Work under
  * ODbL, and planetiler emits the OpenMapTiles schema, which is CC-BY. Geofabrik

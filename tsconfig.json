@@ -6,6 +6,13 @@
     "baseUrl": ".",
     "paths": {
       "~/*": ["src/*"]
-    }
+    },
+    // src/data/seaCountries.mjs is plain JS on purpose — it's imported by both
+    // the Astro app and the bare-Node tile build script, which has no
+    // TypeScript loader in front of it. allowJs lets the app side import it
+    // without duplicating the registry as a .ts file; checkJs stays off so
+    // that file's JSDoc types are informative, not enforced.
+    "allowJs": true,
+    "checkJs": false
   }
 }

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Placeholder mark, same shape language as the favicon in Layout.astro.
+       Colors are a temporary stand-in, not a sourced palette — see PALETTE.md.
+       Swap both together once a real Southeast-Asia-sourced palette is picked. -->
+  <rect width="32" height="32" rx="8" fill="#002d5d"/>
+  <circle cx="16" cy="16" r="9" fill="#52c9e8" stroke="#ffffff" stroke-width="2"/>
+</svg>

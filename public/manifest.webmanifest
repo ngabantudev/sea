@@ -1,0 +1,12 @@
+{
+  "name": "sea — offline Southeast Asia travel map",
+  "short_name": "sea",
+  "description": "A free, offline map of Southeast Asia's land border crossings and free/low-cost lodging for American travelers.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f0f0f0",
+  "theme_color": "#002d5d",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

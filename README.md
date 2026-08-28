@@ -16,6 +16,15 @@ Every record describes a place run as an institution — never a person.
 scope** and will not be added; see `AGENTS.md` for why. See `AGENTS.md` for
 the full scope rule.
 
+## Works fully offline
+
+The map itself — not just the app — is meant to work with no connection,
+the way OsmAnd or Organic Maps do. Download a country's map from the
+layers button on the map (bottom right) and it's stored on your device;
+from then on that country loads with zero network requests. The site is
+also installable as an app and opens offline after a first visit. See
+`TILES.md` and `AGENTS.md` for how this is built.
+
 ## Data sources
 
 TODO — not yet filled in. Sources should be each country's immigration or

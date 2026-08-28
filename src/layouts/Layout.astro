@@ -15,8 +15,9 @@ interface Props {
 
 const { metadata = {}, mapShell = false } = Astro.props;
 
-const siteTitle = "SITE NAME";
-const siteDescription = "One sentence: what this maps, and where the data comes from.";
+const siteTitle = "sea";
+const siteDescription =
+  "A free, offline map of Southeast Asia's land border crossings and free/low-cost lodging for American travelers.";
 
 const displayTitle = metadata.title
   ? metadata.ignoreTitleTemplate
@@ -55,6 +56,13 @@ const faviconHref = `data:image/svg+xml,${encodeURIComponent(faviconSvg)}`;
          gets. -->
     <meta name="theme-color" content="#002d5d" />
     <link rel="icon" href={faviconHref} type="image/svg+xml" />
+
+    <!-- Installable + works with the network off after a first visit. See
+         public/sw.js: it caches the app shell (this HTML, the built JS/CSS),
+         NOT map tiles — tile packs are a separate, explicit download the
+         visitor chooses (see OfflineMapsPanel.astro), not something to cache
+         behind their back. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
 
     {/*
       Runs before first paint to avoid a flash of the wrong theme. It has to be
@@ -100,9 +108,25 @@ const faviconHref = `data:image/svg+xml,${encodeURIComponent(faviconSvg)}`;
     <meta name="twitter:description" content={displayDescription} />
     {metadata.ogImage && <meta name="twitter:image" content={metadata.ogImage} />}
 
-    <!-- Warm up the connections the map needs on first paint: the basemap tile
-         server, and whatever bucket serves the overlay tiles. -->
+    <!-- Warm up the connection the map needs on first paint IF nothing is
+         available offline yet. Once a visitor has downloaded a country pack,
+         MapView never calls this host at all — see offlineMap.ts. -->
     <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
+
+    {/*
+      Registers the app-shell service worker so a repeat visit — and any visit
+      after that — opens with no network at all, the same "install once, open
+      anywhere" contract as the map data itself. is:inline + a guard for
+      `serviceWorker` in navigator: older/locked-down browsers just don't get
+      this, same failure posture as the offline map packs above.
+    */}
+    <script is:inline>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("/sw.js").catch(() => {});
+        });
+      }
+    </script>
   </head>
 
   <!--

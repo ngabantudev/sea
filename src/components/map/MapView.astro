@@ -31,6 +31,12 @@ import MapThemeSelector from "~/components/ui/MapThemeSelector.astro";
     onMapStyleChange,
   } from "~/lib/mapStyles";
   import { buildSelfHostedStyle } from "~/lib/selfHostedStyle";
+  import {
+    OFFLINE_PACK_CHANGE_EVENT,
+    getActiveOfflineStyle,
+    setOfflineProtocol,
+  } from "~/lib/offlineMap";
+  import { SEA_DEFAULT_VIEW } from "~/data/seaCountries.mjs";
   import { getActiveTheme, onSiteThemeChange } from "~/lib/siteTheme";
 
   /*
@@ -44,25 +50,40 @@ import MapThemeSelector from "~/components/ui/MapThemeSelector.astro";
   let cleanups: (() => void)[] = [];
 
   /*
-    Registered once per page, not per map. `pmtiles://` is how the style spec
-    (selfHostedStyle.ts) refers to the archive; without this protocol MapLibre
-    has no idea how to turn that into byte-range requests. Only needed when this
-    repo serves its own tiles.
+    ONE Protocol instance for the whole page, module-scoped like `map` above —
+    not one per initMap() run. maplibregl.addProtocol binds a single handler
+    function (protocol.tile) globally; creating a second Protocol on re-init
+    (e.g. astro:page-load) would leave that old handler pointing at the first
+    instance's registry forever, while offlineMap.ts registered packs onto the
+    new one nothing ever consults. Unconditional now, not just for self-hosted
+    — an offline pack needs `pmtiles://` exactly as much as a streamed archive
+    does, just resolving to a local FileSource instead of a byte-range fetch.
   */
+  const pmtilesProtocol = new Protocol();
   let protocolRegistered = false;
   function registerPmtilesProtocol(): void {
-    if (protocolRegistered) return;
-    maplibregl.addProtocol("pmtiles", new Protocol().tile);
-    protocolRegistered = true;
+    if (!protocolRegistered) {
+      maplibregl.addProtocol("pmtiles", pmtilesProtocol.tile);
+      protocolRegistered = true;
+    }
+    setOfflineProtocol(pmtilesProtocol);
   }
 
-  function styleFor(): maplibregl.StyleSpecification | string {
+  /*
+    Offline-first: a downloaded pack outranks everything else, because it is
+    the one source that keeps working with no connection at all — the whole
+    point of this map. Falls through to the self-hosted stream, then the
+    online vendor, exactly as before.
+  */
+  async function styleFor(): Promise<maplibregl.StyleSpecification | string> {
+    const offline = await getActiveOfflineStyle(getActiveTheme());
+    if (offline) return offline.style;
     return IS_SELF_HOSTED
       ? buildSelfHostedStyle(SELF_HOSTED_TILES_URL, getActiveTheme())
       : getInitialMapStyle().url;
   }
 
-  function initMap(): void {
+  async function initMap(): Promise<void> {
     // Tear down whatever a previous run left behind before touching the DOM.
     while (cleanups.length > 0) cleanups.pop()?.();
     map?.remove();
@@ -71,13 +92,13 @@ import MapThemeSelector from "~/components/ui/MapThemeSelector.astro";
     const container = document.getElementById("map");
     if (!container) return;
 
-    if (IS_SELF_HOSTED) registerPmtilesProtocol();
+    registerPmtilesProtocol();
 
     map = new maplibregl.Map({
       container,
-      style: styleFor(),
-      center: [-93.2, 45.0],
-      zoom: 6.4,
+      style: await styleFor(),
+      center: SEA_DEFAULT_VIEW.center as [number, number],
+      zoom: SEA_DEFAULT_VIEW.zoom,
       // The DOM record list beside the canvas is the primary screen-reader
       // interface; the canvas itself should not be a tab stop that traps focus.
       attributionControl: { compact: true },
@@ -88,18 +109,47 @@ import MapThemeSelector from "~/components/ui/MapThemeSelector.astro";
     // MapThemeSelector can never drift out of alignment.
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
 
-    // Both subscriptions keep their unsubscribe, so the teardown above can
-    // actually run. The basemap picker is meaningless when self-hosted (there
-    // is one archive), so that branch repaints on THEME change instead — the
-    // style's colours are baked into the spec rather than read from CSS, since
-    // WebGL cannot resolve `var(--ink)`.
+    /*
+      Re-resolve the whole style, not just repaint: a theme switch, a pack
+      finishing download, or the visitor picking a different downloaded
+      country all have to re-run the same offline-first > self-hosted > online
+      decision above, since which branch applies can change (an offline pack
+      exists now where it didn't a second ago).
+    */
+    async function restyle(theme: "light" | "dark"): Promise<void> {
+      const offline = await getActiveOfflineStyle(theme);
+      if (offline) {
+        map?.setStyle(offline.style);
+        return;
+      }
+      if (IS_SELF_HOSTED) {
+        map?.setStyle(buildSelfHostedStyle(SELF_HOSTED_TILES_URL, theme));
+      }
+      // Online vendor mode keeps its own onMapStyleChange subscription below —
+      // it swaps basemaps by id, not by re-deriving from theme.
+    }
+
     cleanups.push(
-      IS_SELF_HOSTED
-        ? onSiteThemeChange((theme) =>
-            map?.setStyle(buildSelfHostedStyle(SELF_HOSTED_TILES_URL, theme)),
-          )
-        : onMapStyleChange((option) => map?.setStyle(option.url)),
+      onSiteThemeChange((theme) => {
+        restyle(theme);
+      }),
     );
+
+    const onOfflinePackChange = () => restyle(getActiveTheme());
+    document.addEventListener(OFFLINE_PACK_CHANGE_EVENT, onOfflinePackChange);
+    cleanups.push(() => document.removeEventListener(OFFLINE_PACK_CHANGE_EVENT, onOfflinePackChange));
+
+    if (!IS_SELF_HOSTED) {
+      cleanups.push(
+        onMapStyleChange((option) => {
+          // A pack downloaded mid-session still wins; only fall through to the
+          // vendor basemap choice when there is truly nothing offline active.
+          getActiveOfflineStyle(getActiveTheme()).then((offline) => {
+            if (!offline) map?.setStyle(option.url);
+          });
+        }),
+      );
+    }
   }
 
   onReady(initMap);

@@ -22,6 +22,7 @@
 // here even where a literal looks equivalent today.
 import { IS_SELF_HOSTED, MAP_STYLE_OPTIONS } from "~/lib/mapStyles";
 import { Sun, Moon, Check, Layers } from "@lucide/astro";
+import OfflineMapsPanel from "./OfflineMapsPanel.astro";
 
 const SITE_THEMES = [
   { id: "light", label: "Light", icon: Sun },
@@ -115,6 +116,9 @@ const SITE_THEMES = [
         </button>
       ))
     }
+
+    <div class="mx-1 border-t border-hair" />
+    <OfflineMapsPanel />
   </div>
 </div>
 

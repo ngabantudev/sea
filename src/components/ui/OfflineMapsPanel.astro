@@ -1,0 +1,199 @@
+---
+// src/components/ui/OfflineMapsPanel.astro
+//
+// The "Offline Maps" section of the map/site theme popover (MapThemeSelector
+// hosts it — see that file for why theme and basemap share one popover).
+// Lists every Southeast Asian country pack; downloads one into on-device
+// storage (src/lib/offlinePacks.ts) and activates it (src/lib/offlineMap.ts)
+// so MapView starts reading it with zero network requests, the way OsmAnd or
+// Organic Maps read a region file already on the phone.
+//
+// Renders nothing if OFFLINE_PACKS_AVAILABLE is false (no PUBLIC_PACKS_BASE_URL
+// configured) or the browser lacks OPFS — see the script below, which hides
+// the whole section rather than offering buttons that would just fail.
+import { Download, Check, Trash2, LoaderCircle } from "@lucide/astro";
+import { SEA_COUNTRIES } from "~/data/seaCountries.mjs";
+---
+
+<div id="offline-maps-section">
+  <span class="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-ink-4">
+    Offline Maps
+  </span>
+  <p class="px-2 pb-1.5 text-[10px] leading-snug text-ink-4">
+    Download a country to browse it with no connection.
+  </p>
+  <div id="omp-rows" class="flex flex-col gap-0.5 px-1 pb-1.5">
+    {
+      SEA_COUNTRIES.map((country) => (
+        <div
+          class="omp-row flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-[11px] md:text-xs font-semibold text-ink-2 hover:bg-hover transition"
+          data-country-id={country.id}
+        >
+          <button
+            type="button"
+            class="omp-activate flex min-w-0 flex-1 items-center gap-1.5 text-left disabled:cursor-default"
+            aria-pressed="false"
+          >
+            <Check size={13} class="omp-active-check shrink-0 text-accent opacity-0" />
+            <span class="truncate">{country.label}</span>
+          </button>
+          <span class="omp-status shrink-0 text-[10px] font-normal text-ink-4" />
+          <button
+            type="button"
+            class="omp-action shrink-0 rounded-md p-1 text-ink-3 hover:bg-panel-2 hover:text-ink transition"
+            data-action="download"
+          >
+            <Download size={14} class="omp-icon-download" />
+            <LoaderCircle size={14} class="omp-icon-loading hidden animate-spin" />
+            <Trash2 size={14} class="omp-icon-delete hidden" />
+          </button>
+        </div>
+      ))
+    }
+  </div>
+  <p id="omp-unsupported" class="hidden px-2 pb-1.5 text-[10px] leading-snug text-ink-4">
+    Offline downloads need a browser with private on-device storage (recent
+    Chrome, Safari, or Firefox). This map still works online.
+  </p>
+</div>
+
+<script>
+  import { onReady } from "~/lib/domReady";
+  import { OFFLINE_PACKS_AVAILABLE, PACKS_BASE_URL } from "~/lib/mapStyles";
+  import {
+    deleteStoredPack,
+    downloadPack,
+    isOfflineStorageSupported,
+    listStoredPackIds,
+    requestPersistence,
+    type PackProgress,
+  } from "~/lib/offlinePacks";
+  import { getActiveOfflinePackId, setActiveOfflinePackId } from "~/lib/offlineMap";
+
+  let cleanups: (() => void)[] = [];
+  const downloadsInFlight = new Map<string, AbortController>();
+
+  function formatBytes(bytes: number): string {
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
+  }
+
+  async function paintRow(row: HTMLElement, storedIds: string[], activeId: string | null): Promise<void> {
+    const countryId = row.dataset.countryId!;
+    const stored = storedIds.includes(countryId);
+    const isActive = stored && countryId === activeId;
+    const inFlight = downloadsInFlight.has(countryId);
+
+    const activateBtn = row.querySelector<HTMLButtonElement>(".omp-activate")!;
+    const check = row.querySelector<HTMLElement>(".omp-active-check")!;
+    const status = row.querySelector<HTMLElement>(".omp-status")!;
+    const actionBtn = row.querySelector<HTMLButtonElement>(".omp-action")!;
+    const iconDownload = row.querySelector<HTMLElement>(".omp-icon-download")!;
+    const iconLoading = row.querySelector<HTMLElement>(".omp-icon-loading")!;
+    const iconDelete = row.querySelector<HTMLElement>(".omp-icon-delete")!;
+
+    activateBtn.disabled = !stored;
+    activateBtn.setAttribute("aria-pressed", String(isActive));
+    check.classList.toggle("opacity-0", !isActive);
+
+    if (!inFlight) {
+      status.textContent = stored ? "On this device" : "";
+    }
+
+    iconDownload.classList.toggle("hidden", inFlight || stored);
+    iconLoading.classList.toggle("hidden", !inFlight);
+    iconDelete.classList.toggle("hidden", inFlight || !stored);
+    actionBtn.dataset.action = stored ? "delete" : "download";
+    actionBtn.setAttribute(
+      "aria-label",
+      stored ? `Remove offline ${countryId} map` : `Download offline ${countryId} map`,
+    );
+  }
+
+  async function refreshAll(root: HTMLElement): Promise<void> {
+    const storedIds = await listStoredPackIds();
+    const activeId = getActiveOfflinePackId();
+    for (const row of root.querySelectorAll<HTMLElement>(".omp-row")) {
+      await paintRow(row, storedIds, activeId);
+    }
+  }
+
+  function initOfflineMapsPanel(): void {
+    const section = document.getElementById("offline-maps-section");
+    if (!section) return;
+
+    while (cleanups.length > 0) cleanups.pop()?.();
+
+    if (!OFFLINE_PACKS_AVAILABLE || !isOfflineStorageSupported()) {
+      section.querySelector("#omp-rows")?.classList.add("hidden");
+      section.querySelector("p:not(#omp-unsupported)")?.classList.add("hidden");
+      document.getElementById("omp-unsupported")?.classList.remove("hidden");
+      return;
+    }
+
+    requestPersistence();
+    refreshAll(section);
+
+    const onClick = async (event: Event) => {
+      const row = (event.target as HTMLElement).closest<HTMLElement>(".omp-row");
+      if (!row || !section.contains(row)) return;
+      const countryId = row.dataset.countryId!;
+
+      const activateBtn = (event.target as HTMLElement).closest(".omp-activate");
+      if (activateBtn) {
+        if ((activateBtn as HTMLButtonElement).disabled) return;
+        setActiveOfflinePackId(countryId);
+        await refreshAll(section);
+        return;
+      }
+
+      const actionBtn = (event.target as HTMLElement).closest<HTMLButtonElement>(".omp-action");
+      if (!actionBtn) return;
+
+      if (actionBtn.dataset.action === "delete") {
+        await deleteStoredPack(countryId);
+        const stillStored = await listStoredPackIds();
+        if (getActiveOfflinePackId() === countryId) {
+          setActiveOfflinePackId(stillStored[0] ?? null);
+        }
+        await refreshAll(section);
+        return;
+      }
+
+      // Download.
+      const controller = new AbortController();
+      downloadsInFlight.set(countryId, controller);
+      await paintRow(row, await listStoredPackIds(), getActiveOfflinePackId());
+      const status = row.querySelector<HTMLElement>(".omp-status")!;
+
+      try {
+        await downloadPack(
+          countryId,
+          PACKS_BASE_URL,
+          (progress: PackProgress) => {
+            status.textContent = progress.totalBytes
+              ? `${Math.round((progress.receivedBytes / progress.totalBytes) * 100)}%`
+              : formatBytes(progress.receivedBytes);
+          },
+          controller.signal,
+        );
+        // First pack downloaded this session becomes active automatically —
+        // otherwise a first-time visitor downloads a country and the map
+        // keeps showing the online basemap with no obvious next step.
+        if (!getActiveOfflinePackId()) setActiveOfflinePackId(countryId);
+      } catch (error) {
+        if ((error as Error).name !== "AbortError") {
+          status.textContent = "Download failed";
+        }
+      } finally {
+        downloadsInFlight.delete(countryId);
+        await refreshAll(section);
+      }
+    };
+
+    section.addEventListener("click", onClick);
+    cleanups.push(() => section.removeEventListener("click", onClick));
+  }
+
+  onReady(initOfflineMapsPanel);
+</script>

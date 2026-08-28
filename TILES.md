@@ -2,6 +2,8 @@
 
 Extracted from `flockoffmn` (self-hosted basemap) and `mndatacenter` (self-hosted overlays). Both arrived here after a vendor failure or a caching bug that shipped to production. Read this before touching a tile URL.
 
+**This repo goes one step further than either of those: fully offline, on-device packs**, one per Southeast Asian country, storable on the visitor's own device and read with zero network calls once downloaded — see the "Offline packs" section below and `AGENTS.md`. Everything below about self-hosted PMTiles still applies; it's the *streaming* tier this repo falls back to when no pack is downloaded, not the primary mode.
+
 ## The decision
 
 A civic map has two tile problems, and they are different:
@@ -24,9 +26,16 @@ One static `.pmtiles` file in a public R2 bucket. **No tile server and no Worker
 A statewide archive at maxzoom 14 is ~150–350 MB and stays inside R2's free tier. A visitor does not download it: a measured session at statewide zoom with two layers on made 13 requests, all `Range`, none the whole file.
 
 ```bash
-node scripts/tiles/build-basemap.mjs              # build only
-node scripts/tiles/build-basemap.mjs --upload     # build, then publish to R2
+node scripts/tiles/build-basemap.mjs                             # build every SEA country's pack
+node scripts/tiles/build-basemap.mjs --upload                    # build + publish all
+node scripts/tiles/build-basemap.mjs --only=thailand,laos --upload
 ```
+
+## Offline packs (the primary mode for this repo)
+
+One `.pmtiles` file per country in `src/data/seaCountries.mjs`, same build tool, same bucket — the only difference is the browser's *own* download, not a byte-range stream. `src/lib/offlinePacks.ts` fetches a country's archive fully, writes it into the Origin Private File System, and `src/lib/offlineMap.ts` hands the stored `File` to pmtiles' `FileSource` so MapView reads it with `File.slice()`, never `fetch()`. Set `PUBLIC_PACKS_BASE_URL` to the bucket's public base URL (not a specific file — the picker appends `sea-<country>.pmtiles` itself) to turn this on.
+
+This is a different tier from the streaming self-hosted mode below: a pack, once downloaded, works with the device in airplane mode. A streamed archive still makes range requests on every pan — it just doesn't call a vendor to do it.
 
 Requires Java 17+ on PATH (planetiler is a Java program) and an authenticated `npx wrangler`. Rebuild cadence is **manual and ad hoc** — roughly annually, or when the map visibly drifts. An automated write path into a production bucket is another unattended thing that can silently overwrite something, for a benefit a road network that changes this slowly does not need.
 
