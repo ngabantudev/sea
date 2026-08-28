@@ -1,14 +1,19 @@
 # sea
 
-A civic map of Southeast Asia's land border crossings ("gates") — which ones
-Americans are permitted to cross, and under what rules.
+A free civic map of Southeast Asia for American travelers: which land
+border crossings ("gates") you can use, and where to find free or
+low-cost lodging.
 
 ## What this maps
 
-Each record is a land border crossing between two Southeast Asian countries:
-its legal status, hours of operation, and rules for travelers on a U.S.
-passport. It does not track or identify the people who use a crossing —
-only the crossing itself, as a piece of infrastructure. See `AGENTS.md` for
+- **Gates** — land border crossings between Southeast Asian countries:
+  legal status, hours, and rules for a traveler on a U.S. passport.
+- **Lodging** — free-bed hostels, hospitality institutions (monasteries,
+  temples that host travelers), and volunteer-stay/work-exchange programs.
+
+Every record describes a place run as an institution — never a person.
+**Private-individual hosting (e.g. Couchsurfing) is deliberately out of
+scope** and will not be added; see `AGENTS.md` for why. See `AGENTS.md` for
 the full scope rule.
 
 ## Data sources
